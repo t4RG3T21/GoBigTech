@@ -1,0 +1,83 @@
+﻿openapi: 3.0.3
+info:
+  title: Order Service API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /orders:
+    post:
+      summary: Create a new order
+      operationId: PostOrders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: Bad Request
+        '502':
+          description: Bad Gateway
+  /orders/{id}:
+    get:
+      summary: Get order by ID
+      operationId: GetOrdersId
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    OrderRequest:
+      type: object
+      required:
+        - user_id
+        - items
+      properties:
+        user_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        status:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+    OrderItem:
+      type: object
+      required:
+        - product_id
+        - quantity
+      properties:
+        product_id:
+          type: string
+        quantity:
+          type: integer
+          format: int32

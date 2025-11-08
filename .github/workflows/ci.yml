@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        service: [order, inventory, payment]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.25'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Install dependencies
+      run: |
+        cd services/${{ matrix.service }}
+        go mod download
+    
+    - name: Run tests for ${{ matrix.service }}
+      run: |
+        cd services/${{ matrix.service }}
+        if [ "${{ matrix.service }}" = "order" ]; then
+          go test -v -coverprofile=coverage.out ./...
+        elif [ "${{ matrix.service }}" = "inventory" ]; then
+          go test -v -coverprofile=coverage.out ./cmd/inventory
+        elif [ "${{ matrix.service }}" = "payment" ]; then
+          go test -v -coverprofile=coverage.out ./cmd/payment
+        fi
+    
+    - name: Check coverage for ${{ matrix.service }}
+      run: |
+        cd services/${{ matrix.service }}
+        if [ -f coverage.out ]; then
+          echo "Coverage report:"
+          go tool cover -func=coverage.out | tail -1
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: $COVERAGE%"
+          # Use awk for floating point comparison
+          COVERAGE_CHECK=$(echo "$COVERAGE 40" | awk '{if ($1 >= $2) print "ok"; else print "fail"}')
+          if [ "$COVERAGE_CHECK" = "fail" ]; then
+            echo "❌ Coverage is below 40%: $COVERAGE%"
+            exit 1
+          else
+            echo "✅ Coverage is acceptable: $COVERAGE%"
+          fi
+        else
+          echo "❌ No coverage file found"
+          exit 1
+        fi
+    
+    - name: Upload coverage to artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-${{ matrix.service }}
+        path: services/${{ matrix.service }}/coverage.out
+
+  coverage-report:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.25'
+    
+    - name: Download all coverage artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Generate coverage report
+      run: |
+        echo "## Coverage Report" >> coverage-report.md
+        echo "" >> coverage-report.md
+        for service in order inventory payment; do
+          if [ -f coverage-$service/coverage.out ]; then
+            echo "### $service Service" >> coverage-report.md
+            echo '```' >> coverage-report.md
+            go tool cover -func=coverage-$service/coverage.out | grep total >> coverage-report.md
+            echo '```' >> coverage-report.md
+            echo "" >> coverage-report.md
+          fi
+        done
+        cat coverage-report.md
+
