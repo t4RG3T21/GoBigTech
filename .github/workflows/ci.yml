@@ -39,10 +39,13 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: |
         if [ "${{ matrix.service }}" = "order" ]; then
-          go test -v -coverprofile=services/order/coverage.out ./services/order/internal/service ./services/order/internal/api
+          go test -v -coverprofile=services/order/coverage.out -coverpkg=./services/order/internal/service,./services/order/internal/api ./services/order/internal/service ./services/order/internal/api
         elif [ "${{ matrix.service }}" = "inventory" ]; then
-          go test -v -coverprofile=services/inventory/coverage.out ./services/inventory/cmd/inventory
+          # Для inventory тесты находятся в cmd/inventory, но тестируют internal/service
+          # Используем -coverpkg чтобы собрать покрытие для всех используемых пакетов
+          go test -v -coverprofile=services/inventory/coverage.out -coverpkg=./services/inventory/... ./services/inventory/cmd/inventory
         elif [ "${{ matrix.service }}" = "payment" ]; then
+          # Для payment логика находится в cmd/payment, покрытие собирается автоматически
           go test -v -coverprofile=services/payment/coverage.out ./services/payment/cmd/payment
         fi
     
