@@ -47,7 +47,7 @@ jobs:
           go test -v -coverprofile=services/inventory/coverage.out ./services/inventory/internal/service
         elif [ "${{ matrix.service }}" = "payment" ]; then
           go test -v ./services/payment/cmd/payment
-          go test -v -coverprofile=services/payment/coverage.out ./services/payment/cmd/payment
+          go test -v -coverprofile=services/payment/coverage.out ./services/payment/internal/service
         fi
     
     - name: Check coverage for ${{ matrix.service }}
