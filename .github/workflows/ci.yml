@@ -41,11 +41,12 @@ jobs:
         if [ "${{ matrix.service }}" = "order" ]; then
           go test -v -coverprofile=services/order/coverage.out -coverpkg=./services/order/internal/service,./services/order/internal/api ./services/order/internal/service ./services/order/internal/api
         elif [ "${{ matrix.service }}" = "inventory" ]; then
-          # Для inventory тесты находятся в cmd/inventory, но тестируют internal/service
-          # Используем -coverpkg чтобы собрать покрытие для всех используемых пакетов
-          go test -v -coverprofile=services/inventory/coverage.out -coverpkg=./services/inventory/... ./services/inventory/cmd/inventory
+          # Сначала прогоняем интеграционные тесты gRPC-сервера (без покрытия)
+          go test -v ./services/inventory/cmd/inventory
+          # Затем отдельно собираем покрытие для бизнес-логики сервиса
+          go test -v -coverprofile=services/inventory/coverage.out ./services/inventory/internal/service
         elif [ "${{ matrix.service }}" = "payment" ]; then
-          # Для payment логика находится в cmd/payment, покрытие собирается автоматически
+          go test -v ./services/payment/cmd/payment
           go test -v -coverprofile=services/payment/coverage.out ./services/payment/cmd/payment
         fi
     
