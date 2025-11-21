@@ -47,6 +47,7 @@ func (s *InventoryService) GetStock(ctx context.Context, req *inventorypb.GetSto
 func (s *InventoryService) ReserveStock(ctx context.Context, req *inventorypb.ReserveStockRequest) (*inventorypb.ReserveStockResponse, error) {
 	err := s.repo.ReserveStock(ctx, req.GetProductId(), req.GetQuantity())
 	if err != nil {
+		// Возвращаем false при любой ошибке (товар не найден, недостаточно товара и т.д.)
 		return &inventorypb.ReserveStockResponse{
 			Success: false,
 		}, nil

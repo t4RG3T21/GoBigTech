@@ -38,49 +38,33 @@ func (r *MongoInventoryRepo) GetStock(ctx context.Context, productID string) (*m
 }
 
 func (r *MongoInventoryRepo) ReserveStock(ctx context.Context, productID string, quantity int32) error {
-	// Используем транзакцию для обеспечения атомарности
-	session, err := r.collection.Database().Client().StartSession()
+	// Сначала проверяем доступное количество
+	var stock models.Stock
+	err := r.collection.FindOne(ctx, bson.M{"product_id": productID}).Decode(&stock)
 	if err != nil {
-		return fmt.Errorf("failed to start session: %w", err)
-	}
-	defer session.EndSession(ctx)
-
-	result, err := session.WithTransaction(ctx, func(sessionContext mongo.SessionContext) (interface{}, error) {
-		// Сначала проверяем доступное количество
-		var stock models.Stock
-		err := r.collection.FindOne(sessionContext, bson.M{"product_id": productID}).Decode(&stock)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find stock: %w", err)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return fmt.Errorf("product %s not found", productID)
 		}
-
-		available := stock.Quantity - stock.Reserved
-		if available < quantity {
-			return nil, errors.New("insufficient stock")
-		}
-
-		// Резервируем товар
-		result, err := r.collection.UpdateOne(
-			sessionContext,
-			bson.M{"product_id": productID},
-			bson.M{"$inc": bson.M{"reserved": quantity}},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to reserve stock: %w", err)
-		}
-
-		if result.MatchedCount == 0 {
-			return nil, errors.New("stock not found during reservation")
-		}
-
-		return result, nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("transaction failed: %w", err)
+		return fmt.Errorf("failed to find stock: %w", err)
 	}
 
-	if result == nil {
-		return errors.New("reservation failed")
+	available := stock.Quantity - stock.Reserved
+	if available < quantity {
+		return fmt.Errorf("insufficient stock: available %d, requested %d", available, quantity)
+	}
+
+	// Резервируем товар (увеличиваем reserved на quantity)
+	result, err := r.collection.UpdateOne(
+		ctx,
+		bson.M{"product_id": productID},
+		bson.M{"$inc": bson.M{"reserved": quantity}},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reserve stock: %w", err)
+	}
+
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("product %s not found during reservation", productID)
 	}
 
 	return nil

@@ -4,44 +4,79 @@ import (
 	"context"
 	"log"
 	"net"
+	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc"
 
+	"github.com/t4RG3T21/GoBigTech/services/inventory/internal/repository"
+	"github.com/t4RG3T21/GoBigTech/services/inventory/internal/service"
 	inventorypb "github.com/t4RG3T21/GoBigTech/services/inventory/v1"
 )
 
-// Server implementation
-type server struct {
-	inventorypb.UnimplementedInventoryServiceServer
-}
-
-func (s *server) GetStock(ctx context.Context, req *inventorypb.GetStockRequest) (*inventorypb.GetStockResponse, error) {
-	log.Printf("GetStock called for product: %s", req.GetProductId())
-	return &inventorypb.GetStockResponse{
-		ProductId: req.GetProductId(),
-		Available: 42,
-	}, nil
-}
-
-func (s *server) ReserveStock(ctx context.Context, req *inventorypb.ReserveStockRequest) (*inventorypb.ReserveStockResponse, error) {
-	log.Printf("ReserveStock called: product=%s, quantity=%d", req.GetProductId(), req.GetQuantity())
-	success := req.GetQuantity() <= 42
-	return &inventorypb.ReserveStockResponse{
-		Success: success,
-	}, nil
-}
-
 func main() {
-	lis, err := net.Listen("tcp", "127.0.0.1:50051")
+	// 1. Подключение к MongoDB
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(ctx, options.Client().
+		ApplyURI("mongodb://admin:password@localhost:27017"))
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
+	}
+	defer func() {
+		if err = client.Disconnect(ctx); err != nil {
+			log.Printf("Failed to disconnect from MongoDB: %v", err)
+		}
+	}()
+
+	// Проверка подключения
+	if err = client.Ping(ctx, nil); err != nil {
+		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
 
-	s := grpc.NewServer()
-	inventorypb.RegisterInventoryServiceServer(s, &server{})
+	// 2. Инициализация репозитория
+	collection := client.Database("inventory_service").Collection("stocks")
+	inventoryRepo := repository.NewMongoInventoryRepo(collection)
 
-	log.Printf("Inventory gRPC server listening on 127.0.0.1:50051")
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	// 3. Создание начальных данных (ОБЯЗАТЕЛЬНО!)
+	initData(ctx, collection)
+
+	// 4. Создание сервиса
+	inventoryService := service.NewInventoryService(inventoryRepo)
+
+	// 5. Запуск gRPC сервера
+	l, err := net.Listen("tcp4", "127.0.0.1:50051")
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+
+	grpcSrv := grpc.NewServer()
+	inventorypb.RegisterInventoryServiceServer(grpcSrv, inventoryService)
+
+	log.Println("inventory gRPC (with MongoDB) listening on 127.0.0.1:50051")
+	if err := grpcSrv.Serve(l); err != nil {
+		log.Fatalf("serve: %v", err)
+	}
+}
+
+func initData(ctx context.Context, collection *mongo.Collection) {
+	// Создаем тестовые данные
+	stocks := []interface{}{
+		bson.M{"product_id": "p1", "quantity": int32(100), "reserved": int32(0)},
+		bson.M{"product_id": "p2", "quantity": int32(50), "reserved": int32(0)},
+		bson.M{"product_id": "p3", "quantity": int32(200), "reserved": int32(0)},
+	}
+
+	// Очищаем и создаем заново (для демо)
+	collection.Drop(ctx)
+
+	result, err := collection.InsertMany(ctx, stocks)
+	if err != nil {
+		log.Printf("Failed to insert test data: %v", err)
+	} else {
+		log.Printf("Inserted %d test stocks: p1 (100), p2 (50), p3 (200)", len(result.InsertedIDs))
 	}
 }

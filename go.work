@@ -1,4 +1,9 @@
 go 1.25.1
+
 use services/order
+
 use services/inventory
+
 use services/payment
+
+use platform
