@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -50,14 +51,30 @@ type Container struct {
 	orderHandler       *api.OrderHandler
 	orderHandlerErr    error
 
+	kafkaProducerOnce  sync.Once
+	kafkaProducer      *service.KafkaProducer
+	kafkaProducerErr   error
+
+	kafkaConsumerOnce  sync.Once
+	kafkaConsumer      *api.KafkaConsumer
+	kafkaConsumerErr   error
+
 	// gRPC соединения для клиентов
 	inventoryConn      *grpc.ClientConn
 	paymentConn        *grpc.ClientConn
+
+	// Логгер
+	logger             *zap.Logger
 }
 
 // NewContainer создает новый DI контейнер
 func NewContainer() *Container {
 	return &Container{}
+}
+
+// SetLogger устанавливает логгер
+func (c *Container) SetLogger(logger *zap.Logger) {
+	c.logger = logger
 }
 
 // Config возвращает конфигурацию, инициализируется один раз
@@ -165,6 +182,51 @@ func (c *Container) PaymentClient() (service.PaymentClient, error) {
 	return c.paymentClient, c.paymentClientErr
 }
 
+// KafkaProducer возвращает Kafka producer с ленивой инициализацией
+func (c *Container) KafkaProducer() (*service.KafkaProducer, error) {
+	c.kafkaProducerOnce.Do(func() {
+		cfg := c.Config()
+		if c.logger == nil {
+			c.kafkaProducerErr = fmt.Errorf("logger not set")
+			return
+		}
+		c.kafkaProducer = service.NewKafkaProducer(
+			cfg.KafkaBootstrapServers,
+			cfg.PaymentTopic,
+			c.logger,
+		)
+	})
+
+	return c.kafkaProducer, c.kafkaProducerErr
+}
+
+// KafkaConsumer возвращает Kafka consumer с ленивой инициализацией
+func (c *Container) KafkaConsumer(ctx context.Context) (*api.KafkaConsumer, error) {
+	c.kafkaConsumerOnce.Do(func() {
+		cfg := c.Config()
+		if c.logger == nil {
+			c.kafkaConsumerErr = fmt.Errorf("logger not set")
+			return
+		}
+
+		repo, err := c.OrderRepository(ctx)
+		if err != nil {
+			c.kafkaConsumerErr = fmt.Errorf("failed to get order repository: %w", err)
+			return
+		}
+
+		c.kafkaConsumer = api.NewKafkaConsumer(
+			cfg.KafkaBootstrapServers,
+			cfg.ConsumerGroupID,
+			cfg.AssemblyTopic,
+			repo,
+			c.logger,
+		)
+	})
+
+	return c.kafkaConsumer, c.kafkaConsumerErr
+}
+
 // OrderService возвращает сервис заказов с ленивой инициализацией
 func (c *Container) OrderService(ctx context.Context) (*service.OrderService, error) {
 	c.orderServiceOnce.Do(func() {
@@ -187,8 +249,14 @@ func (c *Container) OrderService(ctx context.Context) (*service.OrderService, er
 			return
 		}
 
+		kafkaProducer, err := c.KafkaProducer()
+		if err != nil {
+			c.orderServiceErr = fmt.Errorf("failed to get kafka producer: %w", err)
+			return
+		}
+
 		// Создаем сервис
-		c.orderService = service.NewOrderService(repo, invClient, payClient)
+		c.orderService = service.NewOrderService(repo, invClient, payClient, kafkaProducer, c.logger)
 	})
 
 	return c.orderService, c.orderServiceErr
@@ -209,7 +277,7 @@ func (c *Container) OrderHandler(ctx context.Context) (*api.OrderHandler, error)
 	return c.orderHandler, c.orderHandlerErr
 }
 
-// Close закрывает все ресурсы контейнера (база данных, gRPC соединения)
+// Close закрывает все ресурсы контейнера (база данных, gRPC соединения, Kafka)
 func (c *Container) Close() error {
 	var errs []error
 
@@ -226,6 +294,18 @@ func (c *Container) Close() error {
 	if c.paymentConn != nil {
 		if err := c.paymentConn.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close payment connection: %w", err))
+		}
+	}
+
+	if c.kafkaProducer != nil {
+		if err := c.kafkaProducer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close kafka producer: %w", err))
+		}
+	}
+
+	if c.kafkaConsumer != nil {
+		if err := c.kafkaConsumer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close kafka consumer: %w", err))
 		}
 	}
 

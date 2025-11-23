@@ -6,4 +6,8 @@ use services/inventory
 
 use services/payment
 
-use platform
+use (
+	./services/assembly
+	./services/notification
+	platform
+)

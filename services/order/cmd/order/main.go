@@ -159,12 +159,18 @@ func main() {
 	}
 	defer logger.Sync() // Обеспечиваем запись всех логов при завершении
 
+	// Устанавливаем логгер в контейнер
+	container.SetLogger(logger.Logger)
+
 	logger.Info("Starting Order Service",
 		zap.String("http_port", cfg.HTTPPort),
 		zap.String("log_level", cfg.LogLevel),
 		zap.String("database_url", maskDatabaseURL(cfg.DatabaseURL)),
 		zap.String("inventory_grpc", cfg.InventoryGRPCAddress),
 		zap.String("payment_grpc", cfg.PaymentGRPCAddress),
+		zap.String("kafka_bootstrap_servers", cfg.KafkaBootstrapServers),
+		zap.String("kafka_payment_topic", cfg.PaymentTopic),
+		zap.String("kafka_assembly_topic", cfg.AssemblyTopic),
 	)
 
 	// 4. Запуск миграций базы данных
@@ -191,7 +197,17 @@ func main() {
 	}
 	logger.Info("Dependencies initialized successfully")
 
-	// 6. Настройка HTTP роутера
+	// 6. Инициализация Kafka consumer для обработки событий сборки
+	kafkaConsumer, err := container.KafkaConsumer(initCtx)
+	if err != nil {
+		logger.Fatal("Failed to initialize Kafka consumer",
+			zap.Error(err),
+			zap.String("hint", "Check Kafka connection"),
+		)
+	}
+	logger.Info("Kafka consumer initialized successfully")
+
+	// 7. Настройка HTTP роутера
 	r := chi.NewRouter()
 
 	// Health check endpoint
@@ -208,7 +224,7 @@ func main() {
 	// API routes
 	orderapi.HandlerFromMux(orderHandler, r)
 
-	// 7. Настройка HTTP сервера
+	// 8. Настройка HTTP сервера
 	server := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
 		Handler:      r,
@@ -217,7 +233,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// 8. Запуск сервера в отдельной горутине
+	// 9. Запуск HTTP сервера в отдельной горутине
 	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("HTTP server starting", zap.String("address", server.Addr))
@@ -226,19 +242,38 @@ func main() {
 		}
 	}()
 
-	// 9. Обработка сигналов для graceful shutdown
+	// 10. Запуск Kafka consumer в отдельной горутине
+	consumerCtx, consumerCancel := context.WithCancel(context.Background())
+	defer consumerCancel()
+
+	consumerErr := make(chan error, 1)
+	go func() {
+		logger.Info("Kafka consumer starting")
+		if err := kafkaConsumer.Start(consumerCtx); err != nil {
+			consumerErr <- err
+		}
+	}()
+
+	// 11. Обработка сигналов для graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	select {
 	case err := <-serverErr:
 		logger.Fatal("Server error", zap.Error(err))
+	case err := <-consumerErr:
+		logger.Fatal("Kafka consumer error", zap.Error(err))
 	case sig := <-sigChan:
 		logger.Info("Received shutdown signal", zap.String("signal", sig.String()))
 
 		// Создаем контекст с таймаутом для graceful shutdown
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
+
+		// Останавливаем Kafka consumer
+		logger.Info("Stopping Kafka consumer...")
+		consumerCancel()
+		time.Sleep(2 * time.Second) // Даем время на завершение обработки сообщений
 
 		// Останавливаем HTTP сервер
 		logger.Info("Shutting down HTTP server...")
@@ -248,7 +283,7 @@ func main() {
 			logger.Info("HTTP server stopped gracefully")
 		}
 
-		// Закрываем ресурсы контейнера (БД, gRPC соединения)
+		// Закрываем ресурсы контейнера (БД, gRPC соединения, Kafka)
 		logger.Info("Closing container resources...")
 		if err := container.Close(); err != nil {
 			logger.Error("Error closing container resources", zap.Error(err))

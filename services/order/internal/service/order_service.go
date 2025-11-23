@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/t4RG3T21/GoBigTech/services/order/internal/models"
 	"github.com/t4RG3T21/GoBigTech/services/order/internal/repository"
 )
@@ -30,16 +32,20 @@ type OrderService struct {
 	repo      repository.OrderRepository
 	inventory InventoryClient
 	payment   PaymentClient
+	kafka     *KafkaProducer
+	logger    *zap.Logger
 }
 
 // Убеждаемся, что OrderService реализует интерфейс
 var _ OrderServiceInterface = (*OrderService)(nil)
 
-func NewOrderService(repo repository.OrderRepository, inv InventoryClient, pay PaymentClient) *OrderService {
+func NewOrderService(repo repository.OrderRepository, inv InventoryClient, pay PaymentClient, kafka *KafkaProducer, logger *zap.Logger) *OrderService {
 	return &OrderService{
 		repo:      repo,
 		inventory: inv,
 		payment:   pay,
+		kafka:     kafka,
+		logger:    logger,
 	}
 }
 
@@ -74,7 +80,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID string, items []m
 	order.CalculateTotal() // доменная логика
 
 	// 4. Обработка платежа
-	_, err := s.payment.ProcessPayment(ctx, order.ID, userID, order.Total)
+	transactionID, err := s.payment.ProcessPayment(ctx, order.ID, userID, order.Total)
 	if err != nil {
 		return nil, fmt.Errorf("payment processing failed: %w", err)
 	}
@@ -84,6 +90,25 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID string, items []m
 	if err := s.repo.Create(ctx, order); err != nil {
 		// В реальности нужна компенсирующая транзакция
 		return nil, fmt.Errorf("failed to save order: %w", err)
+	}
+
+	// 6. Отправка события оплаты в Kafka
+	if s.kafka != nil {
+		paymentEvent := &PaymentEvent{
+			OrderID:       order.ID,
+			UserID:        userID,
+			Amount:        order.Total,
+			TransactionID: transactionID,
+			Timestamp:     time.Now(),
+		}
+
+		if err := s.kafka.SendPaymentEvent(ctx, paymentEvent); err != nil {
+			s.logger.Error("Failed to send payment event to Kafka",
+				zap.Error(err),
+				zap.String("order_id", order.ID),
+			)
+			// Не возвращаем ошибку, так как заказ уже создан и оплачен
+		}
 	}
 
 	return order, nil

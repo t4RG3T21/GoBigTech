@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/oapi-codegen/runtime v1.1.2
+	github.com/segmentio/kafka-go v0.4.47
 	github.com/stretchr/testify v1.11.0
 	github.com/t4RG3T21/GoBigTech/platform v0.0.0
 	google.golang.org/grpc v1.76.0
