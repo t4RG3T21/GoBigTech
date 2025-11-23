@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"go.uber.org/zap"
 
 	"github.com/t4RG3T21/GoBigTech/services/order/internal/models"
 	repomocks "github.com/t4RG3T21/GoBigTech/services/order/internal/repository/mocks"
@@ -22,8 +23,8 @@ func TestOrderService_CreateOrder_Success(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	// Создаем сервис с моками
-	service := NewOrderService(repoMock, invMock, payMock)
+	// Создаем сервис с моками (nil для Kafka, так как не тестируем Kafka в этом тесте)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
 
 	// Тестовые данные
 	userID := "user123"
@@ -63,7 +64,7 @@ func TestOrderService_CreateOrder_InventoryUnavailable(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
 
 	userID := "user123"
 	items := []models.OrderItem{
@@ -94,7 +95,7 @@ func TestOrderService_CreateOrder_PaymentFailed(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
 
 	userID := "user123"
 	items := []models.OrderItem{
@@ -124,7 +125,7 @@ func TestOrderService_CreateOrder_EmptyItems(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
 
 	// Act
 	order, err := service.CreateOrder(ctx, "user123", []models.OrderItem{})
@@ -148,7 +149,7 @@ func TestOrderService_GetOrderByID_Success(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
 
 	orderID := "order-123"
 	expectedOrder := &models.Order{
@@ -182,7 +183,7 @@ func TestOrderService_GetOrderByID_NotFound(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
 
 	orderID := "non-existent"
 	repoMock.On("GetByID", ctx, orderID).Return(nil, errors.New("order not found"))
@@ -205,7 +206,7 @@ func TestOrderService_GetOrderByID_EmptyID(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
 
 	// Act
 	order, err := service.GetOrderByID(ctx, "")

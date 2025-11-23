@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"go.uber.org/zap"
 
 	"github.com/t4RG3T21/GoBigTech/services/order/internal/models"
 	repomocks "github.com/t4RG3T21/GoBigTech/services/order/internal/repository/mocks"
@@ -20,7 +21,7 @@ func TestOrderService_CreateOrder_EmptyUserID(t *testing.T) {
 	inv := new(servicemocks.MockInventoryClient)
 	pay := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repo, inv, pay)
+	service := NewOrderService(repo, inv, pay, nil, zap.NewNop())
 	order, err := service.CreateOrder(context.Background(), "", []models.OrderItem{
 		{ProductID: "prod", Quantity: 1, Price: 10},
 	})
@@ -38,7 +39,7 @@ func TestOrderService_CreateOrder_InventoryError(t *testing.T) {
 	repo := new(repomocks.MockOrderRepository)
 	inv := new(servicemocks.MockInventoryClient)
 	pay := new(servicemocks.MockPaymentClient)
-	service := NewOrderService(repo, inv, pay)
+	service := NewOrderService(repo, inv, pay, nil, zap.NewNop())
 
 	items := []models.OrderItem{{ProductID: "prod", Quantity: 1, Price: 10}}
 	inv.On("ReserveStock", ctx, "prod", int32(1)).Return(false, errors.New("rpc down"))
@@ -57,7 +58,7 @@ func TestOrderService_CreateOrder_SaveOrderFails(t *testing.T) {
 	repo := new(repomocks.MockOrderRepository)
 	inv := new(servicemocks.MockInventoryClient)
 	pay := new(servicemocks.MockPaymentClient)
-	service := NewOrderService(repo, inv, pay)
+	service := NewOrderService(repo, inv, pay, nil, zap.NewNop())
 
 	items := []models.OrderItem{{ProductID: "prod", Quantity: 1, Price: 10}}
 	inv.On("ReserveStock", ctx, "prod", int32(1)).Return(true, nil)
