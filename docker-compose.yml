@@ -39,6 +39,23 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: gobigtech_redis
+    command: redis-server --requirepass redis_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gobigtech_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_password", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: gobigtech_kafka
@@ -132,6 +149,7 @@ services:
 volumes:
   postgres_data:
   mongodb_data:
+  redis_data:
   kafka_data:
 
 networks:

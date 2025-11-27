@@ -37,8 +37,8 @@ func Load() *Config {
 		PaymentTopic:          getEnv("KAFKA_PAYMENT_TOPIC", "orders.payment"),
 		AssemblyTopic:         getEnv("KAFKA_ASSEMBLY_TOPIC", "orders.assembly"),
 		ConsumerGroupID:       getEnv("KAFKA_CONSUMER_GROUP_ID", "notification-service"),
-		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", ""),
-		TelegramChatID:        getEnvAsInt64("TELEGRAM_CHAT_ID", 0),
+		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", "8301618810:AAGrWANT0ZgatbGxgpc59TysKbn-6jydkZo"),
+		TelegramChatID:        getEnvAsInt64("TELEGRAM_CHAT_ID", 123456789),
 		LogLevel:              getEnv("LOG_LEVEL", "debug"),
 	}
 }
@@ -78,8 +78,6 @@ func (c *Config) Validate() error {
 	if c.TelegramBotToken == "" {
 		return fmt.Errorf("TELEGRAM_BOT_TOKEN cannot be empty (get it from @BotFather)")
 	}
-	if c.TelegramChatID == 0 {
-		return fmt.Errorf("TELEGRAM_CHAT_ID cannot be empty or zero")
-	}
+	// TelegramChatID is optional, defaults to 123456789 if not set
 	return nil
 }

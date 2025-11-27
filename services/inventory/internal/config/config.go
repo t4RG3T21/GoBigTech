@@ -21,6 +21,9 @@ type Config struct {
 	// CollectionName - имя коллекции для stocks
 	CollectionName string
 
+	// IAMGRPCAddress - адрес gRPC сервера IAM Service
+	IAMGRPCAddress string
+
 	// LogLevel - уровень логирования (debug, info, warn, error)
 	LogLevel string
 }
@@ -32,6 +35,7 @@ func Load() *Config {
 		MongoDBURL:     getEnv("MONGODB_URL", "mongodb://admin:password@localhost:27017"),
 		DatabaseName:   getEnv("DATABASE_NAME", "inventory_service"),
 		CollectionName: getEnv("COLLECTION_NAME", "stocks"),
+		IAMGRPCAddress: getEnv("IAM_GRPC_ADDRESS", "localhost:50053"),
 		LogLevel:       getEnv("LOG_LEVEL", "debug"),
 	}
 }
@@ -77,6 +81,9 @@ func (c *Config) Validate() error {
 	}
 	if c.CollectionName == "" {
 		return fmt.Errorf("COLLECTION_NAME cannot be empty")
+	}
+	if c.IAMGRPCAddress == "" {
+		return fmt.Errorf("IAM_GRPC_ADDRESS cannot be empty")
 	}
 	return nil
 }

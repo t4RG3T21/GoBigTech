@@ -6,6 +6,8 @@ use services/inventory
 
 use services/payment
 
+use services/iam
+
 use (
 	./services/assembly
 	./services/notification
