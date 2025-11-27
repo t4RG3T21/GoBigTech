@@ -1,0 +1,63 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage
+coverage.html
+coverage.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+# Proto generated files (keep only the ones we need)
+*.pb.go
+!services/iam/v1/*.pb.go
+!services/inventory/v1/*.pb.go
+!services/payment/v1/*.pb.go
+protoc_output*.txt
+temp_*.txt
+temp_proto/
+*.pb
+iam.pb
+
+# Temporary proto generation files
+temp_protoc_output.txt
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+
+# Build artifacts
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/
+
