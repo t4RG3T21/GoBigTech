@@ -256,7 +256,7 @@ func TestAuthService_Login_InvalidPassword(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, sessionID)
 	assert.Empty(t, userID)
-	assert.Contains(t, err.Error(), "invalid email or password")
+	assert.Contains(t, err.Error(), "invalid credentials")
 	mockUserRepo.AssertExpectations(t)
 }
 

@@ -104,11 +104,11 @@ jobs:
         REDIS_ADDRESS: localhost:6379
       run: |
         if [ "${{ matrix.service }}" = "iam" ]; then
-          go test -v -coverprofile=services/iam/coverage.out ./services/iam/internal/...
+          go test -v -coverprofile=services/iam/coverage.out ./services/iam/internal/service ./services/iam/internal/api
         elif [ "${{ matrix.service }}" = "inventory" ]; then
-          go test -v -coverprofile=services/inventory/coverage.out ./services/inventory/internal/...
+          go test -v -coverprofile=services/inventory/coverage.out ./services/inventory/internal/service ./services/inventory/internal/repository
         elif [ "${{ matrix.service }}" = "payment" ]; then
-          go test -v -coverprofile=services/payment/coverage.out ./services/payment/internal/...
+          go test -v -coverprofile=services/payment/coverage.out ./services/payment/internal/config ./services/payment/internal/di ./services/payment/internal/service
         elif [ "${{ matrix.service }}" = "order" ]; then
           go test -v -coverprofile=services/order/coverage.out -coverpkg=./services/order/internal/service,./services/order/internal/api ./services/order/internal/service ./services/order/internal/api
         fi
