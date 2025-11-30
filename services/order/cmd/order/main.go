@@ -5,6 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	platformhttpmetrics "github.com/t4RG3T21/GoBigTech/platform/httpmetrics"
+	platformmetrics "github.com/t4RG3T21/GoBigTech/platform/metrics"
+	platformtracing "github.com/t4RG3T21/GoBigTech/platform/tracing"
+
+	orderapi "github.com/t4RG3T21/GoBigTech/services/order/api"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,9 +22,10 @@ import (
 	"github.com/pressly/goose/v3"
 	"go.uber.org/zap"
 
-	orderapi "github.com/t4RG3T21/GoBigTech/services/order/api"
-	"github.com/t4RG3T21/GoBigTech/services/order/internal/di"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	platformlogger "github.com/t4RG3T21/GoBigTech/platform/logger"
+	"github.com/t4RG3T21/GoBigTech/services/order/internal/di"
 )
 
 func runMigrations(dbURL string, logger *platformlogger.Logger) error {
@@ -159,6 +165,13 @@ func main() {
 	}
 	defer logger.Sync() // Обеспечиваем запись всех логов при завершении
 
+	// Инициализация OpenTelemetry (traces и metrics)
+	logger.Info("Initializing OpenTelemetry (traces and metrics)")
+	otelConfig := platformtracing.DefaultConfig("order-service")
+	otelShutdown, err := platformtracing.InitOpenTelemetry(otelConfig)
+	if err != nil {
+		logger.Fatal("Failed to initialize OpenTelemetry", zap.Error(err))
+	}
 	// Устанавливаем логгер в контейнер
 	container.SetLogger(logger.Logger)
 
@@ -207,8 +220,19 @@ func main() {
 	}
 	logger.Info("Kafka consumer initialized successfully")
 
-	// 7. Настройка HTTP роутера
+	// 7. Создаем платформенные метрики и middleware
+	httpMetrics := platformmetrics.NewHTTPMetrics("order")
+	tracingMiddleware := platformtracing.TracingMiddleware("order-service-http")
+	metricsMiddleware := platformhttpmetrics.MetricsMiddleware(httpMetrics)
+
+	// 8. Настройка HTTP роутера
 	r := chi.NewRouter()
+
+	// Middleware для трассировки (должен быть первым для захвата всего запроса)
+	r.Use(tracingMiddleware)
+
+	// Middleware для метрик
+	r.Use(metricsMiddleware)
 
 	// Health check endpoint
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -221,10 +245,13 @@ func main() {
 		})
 	})
 
+	// Prometheus metrics endpoint
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
+
 	// API routes
 	orderapi.HandlerFromMux(orderHandler, r)
 
-	// 8. Настройка HTTP сервера
+	// 9. Настройка HTTP сервера
 	server := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
 		Handler:      r,
@@ -233,7 +260,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// 9. Запуск HTTP сервера в отдельной горутине
+	// 10. Запуск HTTP сервера в отдельной горутине
 	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("HTTP server starting", zap.String("address", server.Addr))
@@ -242,7 +269,7 @@ func main() {
 		}
 	}()
 
-	// 10. Запуск Kafka consumer в отдельной горутине
+	// 11. Запуск Kafka consumer в отдельной горутине
 	consumerCtx, consumerCancel := context.WithCancel(context.Background())
 	defer consumerCancel()
 
@@ -254,7 +281,7 @@ func main() {
 		}
 	}()
 
-	// 11. Обработка сигналов для graceful shutdown
+	// 12. Обработка сигналов для graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
@@ -289,6 +316,14 @@ func main() {
 			logger.Error("Error closing container resources", zap.Error(err))
 		} else {
 			logger.Info("Container resources closed successfully")
+		}
+
+		// Останавливаем OpenTelemetry (traces и metrics)
+		logger.Info("Shutting down OpenTelemetry...")
+		if err := otelShutdown(shutdownCtx); err != nil {
+			logger.Error("Error during OpenTelemetry shutdown", zap.Error(err))
+		} else {
+			logger.Info("OpenTelemetry stopped gracefully")
 		}
 	}
 

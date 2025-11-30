@@ -2,13 +2,37 @@ syntax = "proto3";
 
 package iam.v1;
 
+import "google/api/annotations.proto";
+
 option go_package = "github.com/t4RG3T21/GoBigTech/services/iam/v1;iampb";
 
 service IAMService {
-  rpc Register(RegisterRequest) returns (RegisterResponse);
-  rpc Login(LoginRequest) returns (LoginResponse);
-  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
-  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc Register(RegisterRequest) returns (RegisterResponse) {
+    option (google.api.http) = {
+      post: "/v1/iam/register"
+      body: "*"
+    };
+  }
+  
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/v1/iam/login"
+      body: "*"
+    };
+  }
+  
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse) {
+    option (google.api.http) = {
+      post: "/v1/iam/validate-session"
+      body: "*"
+    };
+  }
+  
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {
+    option (google.api.http) = {
+      get: "/v1/iam/user/{user_id}"
+    };
+  }
 }
 
 message RegisterRequest {

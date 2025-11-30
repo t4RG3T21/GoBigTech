@@ -7,6 +7,7 @@
 package iampb
 
 import (
+	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -489,7 +490,7 @@ var File_iam_v1_iam_proto protoreflect.FileDescriptor
 
 const file_iam_v1_iam_proto_rawDesc = "" +
 	"\n" +
-	"\x10iam/v1/iam.proto\x12\x06iam.v1\"_\n" +
+	"\x10iam/v1/iam.proto\x12\x06iam.v1\x1a\x1cgoogle/api/annotations.proto\"_\n" +
 	"\x0fRegisterRequest\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x1a\n" +
@@ -522,13 +523,13 @@ const file_iam_v1_iam_proto_rawDesc = "" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\x03R\tcreatedAt2\x91\x02\n" +
+	"created_at\x18\x04 \x01(\x03R\tcreatedAt2\x8d\x03\n" +
 	"\n" +
-	"IAMService\x12=\n" +
-	"\bRegister\x12\x17.iam.v1.RegisterRequest\x1a\x18.iam.v1.RegisterResponse\x124\n" +
-	"\x05Login\x12\x14.iam.v1.LoginRequest\x1a\x15.iam.v1.LoginResponse\x12R\n" +
-	"\x0fValidateSession\x12\x1e.iam.v1.ValidateSessionRequest\x1a\x1f.iam.v1.ValidateSessionResponse\x12:\n" +
-	"\aGetUser\x12\x16.iam.v1.GetUserRequest\x1a\x17.iam.v1.GetUserResponseB5Z3github.com/t4RG3T21/GoBigTech/services/iam/v1;iampbb\x06proto3"
+	"IAMService\x12Z\n" +
+	"\bRegister\x12\x17.iam.v1.RegisterRequest\x1a\x18.iam.v1.RegisterResponse\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/v1/iam/register\x12N\n" +
+	"\x05Login\x12\x14.iam.v1.LoginRequest\x1a\x15.iam.v1.LoginResponse\"\x18\x82\xd3\xe4\x93\x02\x12:\x01*\"\r/v1/iam/login\x12w\n" +
+	"\x0fValidateSession\x12\x1e.iam.v1.ValidateSessionRequest\x1a\x1f.iam.v1.ValidateSessionResponse\"#\x82\xd3\xe4\x93\x02\x1d:\x01*\"\x18/v1/iam/validate-session\x12Z\n" +
+	"\aGetUser\x12\x16.iam.v1.GetUserRequest\x1a\x17.iam.v1.GetUserResponse\"\x1e\x82\xd3\xe4\x93\x02\x18\x12\x16/v1/iam/user/{user_id}B5Z3github.com/t4RG3T21/GoBigTech/services/iam/v1;iampbb\x06proto3"
 
 var (
 	file_iam_v1_iam_proto_rawDescOnce sync.Once

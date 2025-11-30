@@ -23,8 +23,8 @@ func TestOrderService_CreateOrder_Success(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	// Создаем сервис с моками (nil для Kafka, так как не тестируем Kafka в этом тесте)
-	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
+	// Создаем сервис с моками (nil для Kafka, метрик, так как не тестируем их в этом тесте)
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop(), nil, nil)
 
 	// Тестовые данные
 	userID := "user123"
@@ -34,10 +34,11 @@ func TestOrderService_CreateOrder_Success(t *testing.T) {
 	}
 
 	// Настраиваем ожидания моков
-	invMock.On("ReserveStock", ctx, "prod1", int32(2)).Return(true, nil)
-	invMock.On("ReserveStock", ctx, "prod2", int32(1)).Return(true, nil)
-	payMock.On("ProcessPayment", ctx, mock.AnythingOfType("string"), userID, 250.0).Return("tx_12345", nil)
-	repoMock.On("Create", ctx, mock.AnythingOfType("*models.Order")).Return(nil)
+	// Используем mock.Anything для контекста, так как он может быть обернут в span для трассировки
+	invMock.On("ReserveStock", mock.Anything, "prod1", int32(2)).Return(true, nil)
+	invMock.On("ReserveStock", mock.Anything, "prod2", int32(1)).Return(true, nil)
+	payMock.On("ProcessPayment", mock.Anything, mock.AnythingOfType("string"), userID, 250.0).Return("tx_12345", nil)
+	repoMock.On("Create", mock.Anything, mock.AnythingOfType("*models.Order")).Return(nil)
 
 	// Act
 	order, err := service.CreateOrder(ctx, userID, items)
@@ -64,7 +65,7 @@ func TestOrderService_CreateOrder_InventoryUnavailable(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop(), nil, nil)
 
 	userID := "user123"
 	items := []models.OrderItem{
@@ -72,7 +73,8 @@ func TestOrderService_CreateOrder_InventoryUnavailable(t *testing.T) {
 	}
 
 	// Настраиваем что товар недоступен
-	invMock.On("ReserveStock", ctx, "prod1", int32(10)).Return(false, nil)
+	// Используем mock.Anything для контекста, так как он может быть обернут в span для трассировки
+	invMock.On("ReserveStock", mock.Anything, "prod1", int32(10)).Return(false, nil)
 
 	// Act
 	order, err := service.CreateOrder(ctx, userID, items)
@@ -95,15 +97,16 @@ func TestOrderService_CreateOrder_PaymentFailed(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop(), nil, nil)
 
 	userID := "user123"
 	items := []models.OrderItem{
 		{ProductID: "prod1", Quantity: 2, Price: 100.0},
 	}
 
-	invMock.On("ReserveStock", ctx, "prod1", int32(2)).Return(true, nil)
-	payMock.On("ProcessPayment", ctx, mock.AnythingOfType("string"), userID, 200.0).Return("", errors.New("insufficient funds"))
+	// Используем mock.Anything для контекста, так как он может быть обернут в span для трассировки
+	invMock.On("ReserveStock", mock.Anything, "prod1", int32(2)).Return(true, nil)
+	payMock.On("ProcessPayment", mock.Anything, mock.AnythingOfType("string"), userID, 200.0).Return("", errors.New("insufficient funds"))
 
 	// Act
 	order, err := service.CreateOrder(ctx, userID, items)
@@ -125,7 +128,7 @@ func TestOrderService_CreateOrder_EmptyItems(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop(), nil, nil)
 
 	// Act
 	order, err := service.CreateOrder(ctx, "user123", []models.OrderItem{})
@@ -149,7 +152,7 @@ func TestOrderService_GetOrderByID_Success(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop(), nil, nil)
 
 	orderID := "order-123"
 	expectedOrder := &models.Order{
@@ -162,7 +165,8 @@ func TestOrderService_GetOrderByID_Success(t *testing.T) {
 		Total: 200.0,
 	}
 
-	repoMock.On("GetByID", ctx, orderID).Return(expectedOrder, nil)
+	// Используем mock.Anything для контекста, так как он может быть обернут в span для трассировки
+	repoMock.On("GetByID", mock.Anything, orderID).Return(expectedOrder, nil)
 
 	// Act
 	order, err := service.GetOrderByID(ctx, orderID)
@@ -183,10 +187,11 @@ func TestOrderService_GetOrderByID_NotFound(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop(), nil, nil)
 
 	orderID := "non-existent"
-	repoMock.On("GetByID", ctx, orderID).Return(nil, errors.New("order not found"))
+	// Используем mock.Anything для контекста, так как он может быть обернут в span для трассировки
+	repoMock.On("GetByID", mock.Anything, orderID).Return(nil, errors.New("order not found"))
 
 	// Act
 	order, err := service.GetOrderByID(ctx, orderID)
@@ -206,7 +211,7 @@ func TestOrderService_GetOrderByID_EmptyID(t *testing.T) {
 	invMock := new(servicemocks.MockInventoryClient)
 	payMock := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop())
+	service := NewOrderService(repoMock, invMock, payMock, nil, zap.NewNop(), nil, nil)
 
 	// Act
 	order, err := service.GetOrderByID(ctx, "")

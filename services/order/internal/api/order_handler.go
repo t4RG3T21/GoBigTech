@@ -3,6 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+
+	"google.golang.org/grpc/metadata"
 
 	api "github.com/t4RG3T21/GoBigTech/services/order/api" // сгенерированный OpenAPI
 	"github.com/t4RG3T21/GoBigTech/services/order/internal/models"
@@ -44,8 +47,24 @@ func (h *OrderHandler) PostOrders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Извлекаем session_id из Authorization header (Bearer token)
+	ctx := r.Context()
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		// Формат: "Bearer <session_id>"
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+			sessionID := parts[1]
+			// Добавляем session_id в gRPC metadata для передачи в Inventory Service
+			md := metadata.New(map[string]string{
+				"session_id": sessionID,
+			})
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+	}
+
 	// Вызов бизнес-логики
-	order, err := h.orderService.CreateOrder(r.Context(), req.UserId, items)
+	order, err := h.orderService.CreateOrder(ctx, req.UserId, items)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

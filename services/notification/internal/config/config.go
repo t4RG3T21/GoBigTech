@@ -28,7 +28,11 @@ type Config struct {
 
 	// LogLevel - уровень логирования (debug, info, warn, error)
 	LogLevel string
+
+	HTTPPort string
 }
+
+//`env:"HTTP_PORT" envDefault:"8083"`
 
 // Load загружает конфигурацию из переменных окружения с разумными значениями по умолчанию
 func Load() *Config {
@@ -38,8 +42,9 @@ func Load() *Config {
 		AssemblyTopic:         getEnv("KAFKA_ASSEMBLY_TOPIC", "orders.assembly"),
 		ConsumerGroupID:       getEnv("KAFKA_CONSUMER_GROUP_ID", "notification-service"),
 		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", "8301618810:AAGrWANT0ZgatbGxgpc59TysKbn-6jydkZo"),
-		TelegramChatID:        getEnvAsInt64("TELEGRAM_CHAT_ID", 123456789),
+		TelegramChatID:        getEnvAsInt64("TELEGRAM_CHAT_ID", 620586579),
 		LogLevel:              getEnv("LOG_LEVEL", "debug"),
+		HTTPPort:              getEnv("HTTP_PORT", "8083"),
 	}
 }
 
@@ -78,6 +83,10 @@ func (c *Config) Validate() error {
 	if c.TelegramBotToken == "" {
 		return fmt.Errorf("TELEGRAM_BOT_TOKEN cannot be empty (get it from @BotFather)")
 	}
-	// TelegramChatID is optional, defaults to 123456789 if not set
+	if c.HTTPPort == "" {
+		return fmt.Errorf("HTTP_PORT is required")
+	}
 	return nil
 }
+
+// TelegramChatID is optional, defaults to 620586579 if not set

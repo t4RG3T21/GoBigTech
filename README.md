@@ -279,9 +279,52 @@ grpcurl -plaintext localhost:50053 list iam.v1.IAMService
 grpcurl -plaintext localhost:50053 describe iam.v1.IAMService.Register
 ```
 
-## 📊 Мониторинг
+## 📊 Мониторинг и Observability
 
+Проект включает полный стек Observability:
+
+### Метрики (Prometheus)
+- **Prometheus**: http://localhost:9090 - сбор и хранение метрик
+- **Grafana**: http://localhost:3000 - визуализация метрик (admin/admin)
+- **Order Service метрики**: http://localhost:8080/metrics
+- **OpenTelemetry Collector метрики**: http://localhost:8889/metrics
+
+### Трассировка (Jaeger)
+- **Jaeger UI**: http://localhost:16686 - просмотр трейсов запросов
+- Трассировка настроена для всех HTTP и gRPC запросов
+- Полная трассировка от HTTP входа до вызовов Payment и Inventory сервисов
+
+### Логи (Elasticsearch/Kibana)
+- **Kibana**: http://localhost:5601 - просмотр и поиск логов
+- **Elasticsearch**: http://localhost:9200 - хранение логов
+- Логи собираются автоматически из всех Docker контейнеров через Filebeat
+- Логи в JSON формате для удобного парсинга
+
+### Алерты (Alertmanager)
+- **Alertmanager**: http://localhost:9093 - управление алертами
+- Алерты настроены для:
+  - Высокой частоты заказов
+  - Ошибок платежей
+  - Медленной обработки заказов
+  - Проблем с базой данных
+- Уведомления отправляются в Telegram через Notification Service
+
+### Другие инструменты
 - **Kafka UI**: http://localhost:8081 - веб-интерфейс для управления Kafka
+
+### Тестирование Observability стека
+
+Запустите скрипт для проверки всех компонентов:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/test-observability.ps1
+```
+
+Подробная документация:
+- [monitoring/ELASTICSEARCH_SETUP.md](monitoring/ELASTICSEARCH_SETUP.md) - настройка Elasticsearch и Kibana
+- [monitoring/QUICK_START_ELASTICSEARCH.md](monitoring/QUICK_START_ELASTICSEARCH.md) - быстрый старт ELK стека
+- [monitoring/ALERTING_SETUP.md](monitoring/ALERTING_SETUP.md) - настройка алертов
+- [monitoring/GRAFANA_SETUP.md](monitoring/GRAFANA_SETUP.md) - настройка Grafana
+- [platform/OBSERVABILITY.md](platform/OBSERVABILITY.md) - использование платформенных компонентов
 
 ## 🛑 Остановка
 
@@ -302,6 +345,7 @@ docker-compose down -v
 
 ## 🔧 Технологии
 
+### Основные
 - **Go 1.25.1** - основной язык программирования
 - **gRPC** - межсервисная коммуникация
 - **Protocol Buffers** - сериализация данных
@@ -310,6 +354,16 @@ docker-compose down -v
 - **Redis** - кэш и хранение сессий
 - **Kafka** - event streaming
 - **Docker** - контейнеризация зависимостей
+
+### Observability
+- **Prometheus** - сбор метрик
+- **Grafana** - визуализация метрик
+- **Jaeger** - распределенная трассировка
+- **OpenTelemetry** - стандарт для телеметрии
+- **Elasticsearch** - хранение логов
+- **Kibana** - визуализация логов
+- **Filebeat** - сбор логов
+- **Alertmanager** - управление алертами
 
 ## 📝 Лицензия
 

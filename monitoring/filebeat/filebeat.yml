@@ -1,0 +1,49 @@
+filebeat.inputs:
+  - type: container
+    paths:
+      - '/var/lib/docker/containers/*/*.log'
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      - add_host_metadata:
+          when.not.contains.tags: forwarded
+
+processors:
+  # Парсим JSON логи из поля message
+  - decode_json_fields:
+      fields: ["message"]
+      target: "json"
+      overwrite_keys: true
+      process_array: false
+      max_depth: 1
+      when.contains:
+        message: '"level"'
+
+output.elasticsearch:
+  hosts: ['elasticsearch:9200']
+  index: "logs-%{+yyyy.MM.dd}"
+
+# Настройка шаблонов индексов
+setup.template.name: "logs"
+setup.template.pattern: "logs-*"
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0
+  index.codec: best_compression
+
+# Отключаем ILM (Index Lifecycle Management) для разработки
+setup.ilm.enabled: false
+
+# Настройка Kibana
+setup.kibana:
+  host: "kibana:5601"
+
+# Логирование Filebeat
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
+

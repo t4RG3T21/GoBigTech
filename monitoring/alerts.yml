@@ -1,0 +1,112 @@
+groups:
+  - name: order_business_alerts
+    interval: 30s
+    rules:
+      # Алерт: Высокая частота заказов (>10 заказов/минуту)
+      - alert: HighOrderRate
+        expr: rate(order_orders_created_total[1m]) > 0.166  # 10 заказов/мин = 0.166 заказов/сек
+        for: 2m
+        labels:
+          severity: warning
+          service: order-service
+        annotations:
+          summary: "🚨 Высокая частота заказов"
+          description: "Создается более 10 заказов в минуту. Текущая частота: {{ $value | humanize }} заказов/сек"
+
+      # Алерт: Ошибки платежей
+      - alert: PaymentErrors
+        expr: rate(order_orders_failed_total{reason="payment_processing_failed"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: order-service
+        annotations:
+          summary: "💳 Ошибки обработки платежей"
+          description: "Обнаружены ошибки при обработке платежей. Частота ошибок: {{ $value | humanize }}/сек за последние 5 минут"
+
+      # Алерт: Высокий процент ошибок заказов
+      - alert: HighOrderFailureRate
+        expr: |
+          (
+            rate(order_orders_failed_total[5m]) /
+            (rate(order_orders_created_total[5m]) + rate(order_orders_failed_total[5m]))
+          ) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: order-service
+        annotations:
+          summary: "⚠️ Высокий процент ошибок заказов"
+          description: "Более 10% заказов завершаются с ошибкой. Процент ошибок: {{ $value | humanizePercentage }}"
+
+      # Алерт: Нет заказов (возможная проблема)
+      - alert: NoOrdersReceived
+        expr: rate(order_orders_created_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          service: order-service
+        annotations:
+          summary: "📉 Нет новых заказов"
+          description: "Не было получено ни одного заказа за последние 10 минут. Возможна проблема с сервисом."
+
+  - name: order_performance_alerts
+    interval: 30s
+    rules:
+      # Алерт: Медленная обработка заказов
+      - alert: SlowOrderProcessing
+        expr: histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: order-service
+        annotations:
+          summary: "🐌 Медленная обработка заказов"
+          description: "95-й перцентиль времени обработки заказов превышает 5 секунд. Текущее значение: {{ $value }}s"
+
+      # Алерт: Очень медленная обработка заказов
+      - alert: VerySlowOrderProcessing
+        expr: histogram_quantile(0.95, rate(order_processing_duration_seconds_bucket[5m])) > 10
+        for: 3m
+        labels:
+          severity: critical
+          service: order-service
+        annotations:
+          summary: "🚨 Критически медленная обработка заказов"
+          description: "95-й перцентиль времени обработки заказов превышает 10 секунд. Текущее значение: {{ $value }}s"
+
+  - name: order_infrastructure_alerts
+    interval: 30s
+    rules:
+      # Алерт: Проблемы с инвентарем
+      - alert: InventoryCheckFailures
+        expr: rate(order_orders_failed_total{reason="inventory_check_failed"}[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: order-service
+        annotations:
+          summary: "📦 Ошибки проверки инвентаря"
+          description: "Обнаружены ошибки при проверке доступности товаров. Частота ошибок: {{ $value | humanize }}/сек"
+
+      # Алерт: Проблемы с базой данных
+      - alert: DatabaseSaveFailures
+        expr: rate(order_orders_failed_total{reason="database_save_failed"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: order-service
+        annotations:
+          summary: "💾 Ошибки сохранения в базу данных"
+          description: "Обнаружены ошибки при сохранении заказов в базу данных. Частота ошибок: {{ $value | humanize }}/сек"
+
+      # Алерт: Высокая нагрузка HTTP запросов
+      - alert: HighHTTPRequestRate
+        expr: rate(order_http_requests_total[1m]) > 10
+        for: 2m
+        labels:
+          severity: info
+          service: order-service
+        annotations:
+          summary: "📊 Высокая нагрузка HTTP запросов"
+          description: "Более 10 HTTP запросов в секунду. Текущая частота: {{ $value | humanize }}/сек"

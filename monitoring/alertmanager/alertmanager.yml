@@ -1,0 +1,55 @@
+global:
+  # Время ожидания перед отправкой повторных алертов
+  resolve_timeout: 5m
+
+# Маршрутизация алертов
+route:
+  # Группировка по имени алерта и сервису
+  group_by: ['alertname', 'service']
+  
+  # Время ожидания перед отправкой группы алертов
+  group_wait: 10s
+  
+  # Интервал между отправками группы алертов
+  group_interval: 10s
+  
+  # Интервал между повторными отправками одного алерта
+  repeat_interval: 1h
+  
+  # Получатель по умолчанию
+  receiver: 'telegram'
+  
+  # Дочерние маршруты для разных уровней серьезности
+  routes:
+    # Критические алерты - отправляем сразу
+    - match:
+        severity: critical
+      receiver: 'telegram'
+      group_wait: 5s
+      repeat_interval: 30m
+      continue: false
+    
+    # Предупреждения - стандартная обработка
+    - match:
+        severity: warning
+      receiver: 'telegram'
+      group_wait: 30s
+      repeat_interval: 2h
+      continue: false
+    
+    # Информационные алерты - реже отправляем
+    - match:
+        severity: info
+      receiver: 'telegram'
+      group_wait: 1m
+      repeat_interval: 6h
+      continue: false
+
+# Получатели алертов
+receivers:
+  - name: 'telegram'
+    webhook_configs:
+      # Отправка в Notification Service, который пересылает в Telegram
+      - url: 'http://notification-service:8083/alert'
+        # Отправлять уведомления о разрешении алертов
+        send_resolved: true

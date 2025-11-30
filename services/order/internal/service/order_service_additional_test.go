@@ -21,7 +21,7 @@ func TestOrderService_CreateOrder_EmptyUserID(t *testing.T) {
 	inv := new(servicemocks.MockInventoryClient)
 	pay := new(servicemocks.MockPaymentClient)
 
-	service := NewOrderService(repo, inv, pay, nil, zap.NewNop())
+	service := NewOrderService(repo, inv, pay, nil, zap.NewNop(), nil, nil)
 	order, err := service.CreateOrder(context.Background(), "", []models.OrderItem{
 		{ProductID: "prod", Quantity: 1, Price: 10},
 	})
@@ -39,10 +39,11 @@ func TestOrderService_CreateOrder_InventoryError(t *testing.T) {
 	repo := new(repomocks.MockOrderRepository)
 	inv := new(servicemocks.MockInventoryClient)
 	pay := new(servicemocks.MockPaymentClient)
-	service := NewOrderService(repo, inv, pay, nil, zap.NewNop())
+	service := NewOrderService(repo, inv, pay, nil, zap.NewNop(), nil, nil)
 
 	items := []models.OrderItem{{ProductID: "prod", Quantity: 1, Price: 10}}
-	inv.On("ReserveStock", ctx, "prod", int32(1)).Return(false, errors.New("rpc down"))
+	// Используем mock.Anything для контекста, так как он может быть обернут в span для трассировки
+	inv.On("ReserveStock", mock.Anything, "prod", int32(1)).Return(false, errors.New("rpc down"))
 
 	order, err := service.CreateOrder(ctx, "user", items)
 
@@ -58,12 +59,13 @@ func TestOrderService_CreateOrder_SaveOrderFails(t *testing.T) {
 	repo := new(repomocks.MockOrderRepository)
 	inv := new(servicemocks.MockInventoryClient)
 	pay := new(servicemocks.MockPaymentClient)
-	service := NewOrderService(repo, inv, pay, nil, zap.NewNop())
+	service := NewOrderService(repo, inv, pay, nil, zap.NewNop(), nil, nil)
 
 	items := []models.OrderItem{{ProductID: "prod", Quantity: 1, Price: 10}}
-	inv.On("ReserveStock", ctx, "prod", int32(1)).Return(true, nil)
-	pay.On("ProcessPayment", ctx, mock.AnythingOfType("string"), "user", 10.0).Return("tx-1", nil)
-	repo.On("Create", ctx, mock.AnythingOfType("*models.Order")).Return(errors.New("db down"))
+	// Используем mock.Anything для контекста, так как он может быть обернут в span для трассировки
+	inv.On("ReserveStock", mock.Anything, "prod", int32(1)).Return(true, nil)
+	pay.On("ProcessPayment", mock.Anything, mock.AnythingOfType("string"), "user", 10.0).Return("tx-1", nil)
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*models.Order")).Return(errors.New("db down"))
 
 	order, err := service.CreateOrder(ctx, "user", items)
 

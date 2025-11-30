@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -27,44 +28,52 @@ type Container struct {
 	cfg        *config.Config
 
 	// Зависимости с ленивой инициализацией
-	dbOnce            sync.Once
-	db                *pgxpool.Pool
-	dbErr             error
+	dbOnce sync.Once
+	db     *pgxpool.Pool
+	dbErr  error
 
-	orderRepoOnce     sync.Once
-	orderRepo         repository.OrderRepository
-	orderRepoErr      error
+	orderRepoOnce sync.Once
+	orderRepo     repository.OrderRepository
+	orderRepoErr  error
 
 	inventoryClientOnce sync.Once
 	inventoryClient     service.InventoryClient
 	inventoryClientErr  error
 
-	paymentClientOnce  sync.Once
-	paymentClient      service.PaymentClient
-	paymentClientErr   error
+	paymentClientOnce sync.Once
+	paymentClient     service.PaymentClient
+	paymentClientErr  error
 
-	orderServiceOnce   sync.Once
-	orderService       *service.OrderService
-	orderServiceErr    error
+	orderMetricsOnce sync.Once
+	orderMetrics     *service.OrderMetrics
+	orderMetricsErr  error
 
-	orderHandlerOnce   sync.Once
-	orderHandler       *api.OrderHandler
-	orderHandlerErr    error
+	promMetricsOnce sync.Once
+	promMetrics     *service.PrometheusMetrics
+	promMetricsErr  error
 
-	kafkaProducerOnce  sync.Once
-	kafkaProducer      *service.KafkaProducer
-	kafkaProducerErr   error
+	orderServiceOnce sync.Once
+	orderService     *service.OrderService
+	orderServiceErr  error
 
-	kafkaConsumerOnce  sync.Once
-	kafkaConsumer      *api.KafkaConsumer
-	kafkaConsumerErr   error
+	orderHandlerOnce sync.Once
+	orderHandler     *api.OrderHandler
+	orderHandlerErr  error
+
+	kafkaProducerOnce sync.Once
+	kafkaProducer     *service.KafkaProducer
+	kafkaProducerErr  error
+
+	kafkaConsumerOnce sync.Once
+	kafkaConsumer     *api.KafkaConsumer
+	kafkaConsumerErr  error
 
 	// gRPC соединения для клиентов
-	inventoryConn      *grpc.ClientConn
-	paymentConn        *grpc.ClientConn
+	inventoryConn *grpc.ClientConn
+	paymentConn   *grpc.ClientConn
 
 	// Логгер
-	logger             *zap.Logger
+	logger *zap.Logger
 }
 
 // NewContainer создает новый DI контейнер
@@ -89,7 +98,7 @@ func (c *Container) Config() *config.Config {
 func (c *Container) Database(ctx context.Context) (*pgxpool.Pool, error) {
 	c.dbOnce.Do(func() {
 		cfg := c.Config()
-		
+
 		// Создаем контекст с таймаутом для подключения
 		connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -133,10 +142,11 @@ func (c *Container) InventoryClient() (service.InventoryClient, error) {
 	c.inventoryClientOnce.Do(func() {
 		cfg := c.Config()
 
-		// Создаем gRPC соединение
+		// Создаем gRPC соединение с OpenTelemetry handler для трассировки
 		conn, err := grpc.NewClient(
 			cfg.InventoryGRPCAddress,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		)
 		if err != nil {
 			c.inventoryClientErr = fmt.Errorf("failed to connect to inventory service: %w", err)
@@ -160,10 +170,11 @@ func (c *Container) PaymentClient() (service.PaymentClient, error) {
 	c.paymentClientOnce.Do(func() {
 		cfg := c.Config()
 
-		// Создаем gRPC соединение
+		// Создаем gRPC соединение с OpenTelemetry handler для трассировки
 		conn, err := grpc.NewClient(
 			cfg.PaymentGRPCAddress,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		)
 		if err != nil {
 			c.paymentClientErr = fmt.Errorf("failed to connect to payment service: %w", err)
@@ -180,6 +191,27 @@ func (c *Container) PaymentClient() (service.PaymentClient, error) {
 	})
 
 	return c.paymentClient, c.paymentClientErr
+}
+
+// OrderMetrics возвращает OpenTelemetry метрики для Order Service с ленивой инициализацией
+func (c *Container) OrderMetrics() (*service.OrderMetrics, error) {
+	c.orderMetricsOnce.Do(func() {
+		metrics, err := service.NewOrderMetrics()
+		if err != nil {
+			c.orderMetricsErr = fmt.Errorf("failed to create order metrics: %w", err)
+			return
+		}
+		c.orderMetrics = metrics
+	})
+	return c.orderMetrics, c.orderMetricsErr
+}
+
+// PrometheusMetrics возвращает Prometheus метрики для Order Service с ленивой инициализацией
+func (c *Container) PrometheusMetrics() *service.PrometheusMetrics {
+	c.promMetricsOnce.Do(func() {
+		c.promMetrics = service.NewPrometheusMetrics()
+	})
+	return c.promMetrics
 }
 
 // KafkaProducer возвращает Kafka producer с ленивой инициализацией
@@ -255,8 +287,18 @@ func (c *Container) OrderService(ctx context.Context) (*service.OrderService, er
 			return
 		}
 
-		// Создаем сервис
-		c.orderService = service.NewOrderService(repo, invClient, payClient, kafkaProducer, c.logger)
+		// Получаем OpenTelemetry метрики
+		orderMetrics, err := c.OrderMetrics()
+		if err != nil {
+			c.orderServiceErr = fmt.Errorf("failed to get order metrics: %w", err)
+			return
+		}
+
+		// Получаем Prometheus метрики
+		promMetrics := c.PrometheusMetrics()
+
+		// Создаем сервис с метриками
+		c.orderService = service.NewOrderService(repo, invClient, payClient, kafkaProducer, c.logger, orderMetrics, promMetrics)
 	})
 
 	return c.orderService, c.orderServiceErr
@@ -315,4 +357,3 @@ func (c *Container) Close() error {
 
 	return nil
 }
-

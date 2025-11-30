@@ -12,6 +12,9 @@ type Config struct {
 	// GRPCPort - порт для gRPC сервера
 	GRPCPort string
 
+	// HTTPPort - порт для HTTP Gateway сервера
+	HTTPPort string
+
 	// DatabaseURL - URL подключения к PostgreSQL
 	DatabaseURL string
 
@@ -35,6 +38,7 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		GRPCPort:      getEnv("GRPC_PORT", "50053"),
+		HTTPPort:      getEnv("HTTP_PORT", "8082"),
 		DatabaseURL:   getEnv("DATABASE_URL", "postgres://postgres:password@localhost:5432/iam_service?sslmode=disable"),
 		RedisAddress:  getEnv("REDIS_ADDRESS", "localhost:6379"),
 		RedisPassword: getEnv("REDIS_PASSWORD", "redis_password"),

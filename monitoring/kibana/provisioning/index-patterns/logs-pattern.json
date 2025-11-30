@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "data_views": [
+    {
+      "id": "logs-pattern",
+      "name": "logs-pattern",
+      "title": "logs-*",
+      "timeFieldName": "@timestamp",
+      "sourceFilters": [],
+      "fieldFormats": {},
+      "runtimeFieldMap": {},
+      "fieldAttrs": {},
+      "allowNoIndex": false,
+      "namespaces": ["default"]
+    }
+  ]
+}
+

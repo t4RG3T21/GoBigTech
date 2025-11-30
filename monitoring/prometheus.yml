@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  # OpenTelemetry Collector - метрики через OTLP
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+
+  # Order Service - прямые Prometheus метрики
+  - job_name: 'order-service'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    # Если Order Service запущен в Docker, используйте:
+    # - targets: ['order-service:8080']

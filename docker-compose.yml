@@ -79,7 +79,9 @@ services:
       KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
     ports:
       - "9092:9092"
-      - "9093:9093"
+      # Port 9093 используется только внутри Docker для CONTROLLER listener
+      # Не маппим его на хост, чтобы избежать конфликта с Alertmanager
+      # Kafka использует 9093 только для внутренней коммуникации между брокерами
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
@@ -146,11 +148,200 @@ services:
       kafka-topics --bootstrap-server kafka:29092 --list
     restart: "no"
 
+  # OpenTelemetry Collector - центральный сборщик данных
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.88.0
+    container_name: gobigtech_otel_collector
+    command: ["--config=/etc/otelcol-config.yaml"]
+    volumes:
+      - ./monitoring/otel-collector-config.yaml:/etc/otelcol-config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # Prometheus metrics - ДОБАВЬ ЭТУ СТРОЧКУ
+    networks:
+      - gobigtech_network
+    depends_on:
+      - jaeger
+
+  # Jaeger - для просмотра трейсов (пути запросов)
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: gobigtech_jaeger
+    ports:
+      - "16686:16686" # Web UI
+    networks:
+      - gobigtech_network
+
+  # Prometheus - для сбора метрик
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: gobigtech_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml
+    networks:
+      - gobigtech_network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+  # Grafana - для красивых графиков
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: gobigtech_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    networks:
+      - gobigtech_network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: gobigtech_alertmanager
+    ports:
+      - "9093:9093"  # Теперь порт свободен после изменения Kafka
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - gobigtech_network
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    # Убираем зависимость от notification-service, т.к. Alertmanager может работать без него
+    # Webhook будет вызываться только когда notification-service доступен
+
+  # Notification Service - для отправки алертов в Telegram
+  notification-service:
+    build:
+      context: .
+      dockerfile: ./services/notification/Dockerfile
+    container_name: gobigtech_notification_service
+    ports:
+      - "8083:8083"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_PAYMENT_TOPIC=orders.payment
+      - KAFKA_ASSEMBLY_TOPIC=orders.assembly
+      - KAFKA_CONSUMER_GROUP_ID=notification-service
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - HTTP_PORT=8083
+      - LOG_LEVEL=info
+    networks:
+      - gobigtech_network
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Elasticsearch - для хранения логов
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: gobigtech_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - gobigtech_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # Kibana - для просмотра логов
+  kibana:
+    image: kibana:8.11.0
+    container_name: gobigtech_kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=
+      - xpack.security.enabled=false
+      - xpack.monitoring.ui.container.elasticsearch.enabled=true
+    ports:
+      - "5601:5601"
+    volumes:
+      - ./monitoring/kibana/provisioning:/usr/share/kibana/config/provisioning
+      - kibana_data:/usr/share/kibana/data
+    networks:
+      - gobigtech_network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+  # Filebeat - для сбора логов из Docker контейнеров
+  filebeat:
+    image: elastic/filebeat:8.11.0
+    container_name: gobigtech_filebeat
+    user: root
+    volumes:
+      - ./monitoring/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat_data:/usr/share/filebeat/data
+    networks:
+      - gobigtech_network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - BEAT_STRICT_PERMS=false
+    command: ["filebeat", "-e", "-strict.perms=false"]
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   mongodb_data:
   redis_data:
   kafka_data:
+  grafana_data:
+  elasticsearch_data:
+  kibana_data:
+  filebeat_data:
 
 networks:
   gobigtech_network:

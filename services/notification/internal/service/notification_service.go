@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -31,6 +32,83 @@ type NotificationService struct {
 	bot    *tgbotapi.BotAPI
 	chatID int64
 	logger *zap.Logger
+}
+
+// Alert представляет структуру алерта от Alertmanager
+type Alert struct {
+	Status      string            `json:"status"`
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
+}
+
+// AlertMessage представляет сообщение от Alertmanager
+type AlertMessage struct {
+	Alerts []Alert `json:"alerts"`
+}
+
+// HandleAlert обрабатывает алерт от Alertmanager и отправляет в Telegram
+func (s *NotificationService) HandleAlert(ctx context.Context, alertMsg AlertMessage) error {
+	for _, alert := range alertMsg.Alerts {
+		// Определяем эмодзи и форматирование в зависимости от статуса
+		var statusEmoji string
+		var statusText string
+		if alert.Status == "firing" {
+			statusEmoji = "🚨"
+			statusText = "АКТИВЕН"
+		} else {
+			statusEmoji = "✅"
+			statusText = "РАЗРЕШЕН"
+		}
+
+		// Определяем эмодзи в зависимости от серьезности
+		severity := alert.Labels["severity"]
+		var severityEmoji string
+		switch severity {
+		case "critical":
+			severityEmoji = "🔴"
+		case "warning":
+			severityEmoji = "🟡"
+		case "info":
+			severityEmoji = "🔵"
+		default:
+			severityEmoji = "⚪"
+		}
+
+		// Формируем сообщение
+		message := fmt.Sprintf(
+			"%s *%s*\n\n%s %s\n\n%s Статус: *%s*\n📦 Сервис: %s",
+			statusEmoji,
+			alert.Labels["alertname"],
+			severityEmoji,
+			alert.Annotations["description"],
+			statusEmoji,
+			statusText,
+			alert.Labels["service"],
+		)
+
+		// Добавляем summary если есть
+		if summary, ok := alert.Annotations["summary"]; ok && summary != "" {
+			message = fmt.Sprintf("%s\n\n📋 %s", message, summary)
+		}
+
+		// Отправляем сообщение в Telegram используя существующий бот
+		msg := tgbotapi.NewMessage(s.chatID, message)
+		msg.ParseMode = "Markdown"
+
+		if _, err := s.bot.Send(msg); err != nil {
+			s.logger.Error("Failed to send alert to Telegram",
+				zap.Error(err),
+				zap.String("alert", alert.Labels["alertname"]))
+			return err
+		}
+
+		s.logger.Info("Alert sent to Telegram",
+			zap.String("alert", alert.Labels["alertname"]),
+			zap.String("status", alert.Status),
+			zap.String("severity", severity))
+	}
+
+	return nil
 }
 
 // NewNotificationService создает новый сервис уведомлений

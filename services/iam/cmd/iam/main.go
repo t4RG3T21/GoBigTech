@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,9 +19,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	platformlogger "github.com/t4RG3T21/GoBigTech/platform/logger"
 	"github.com/t4RG3T21/GoBigTech/services/iam/internal/di"
 	iampb "github.com/t4RG3T21/GoBigTech/services/iam/v1"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 func runMigrations(dbURL string, logger *platformlogger.Logger) error {
@@ -156,6 +160,7 @@ func main() {
 
 	logger.Info("Starting IAM Service",
 		zap.String("grpc_port", cfg.GRPCPort),
+		zap.String("http_port", cfg.HTTPPort),
 		zap.String("log_level", cfg.LogLevel),
 		zap.String("database_url", maskDatabaseURL(cfg.DatabaseURL)),
 		zap.String("redis_address", cfg.RedisAddress),
@@ -212,27 +217,84 @@ func main() {
 	// Регистрируем gRPC reflection для работы с grpcurl
 	reflection.Register(grpcServer)
 
-	// 7. Запуск gRPC сервера в отдельной горутине
-	serverErr := make(chan error, 1)
+	// 7. Настройка HTTP Gateway сервера
+	ctx := context.Background()
+
+	// Создаем gRPC Gateway mux
+	gwMux := runtime.NewServeMux()
+
+	// Регистрируем gateway handlers напрямую к серверу (без проксирования через gRPC клиент)
+	// Это более эффективно и избегает проблем с подключением
+	if err := iampb.RegisterIAMServiceHandlerServer(ctx, gwMux, authHandler); err != nil {
+		logger.Fatal("Failed to register gateway handlers", zap.Error(err))
+	}
+
+	// Создаем HTTP сервер с поддержкой HTTP/2
+	httpMux := http.NewServeMux()
+	httpMux.Handle("/", gwMux)
+
+	// Добавляем CORS middleware
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		httpMux.ServeHTTP(w, r)
+	})
+
+	// Используем h2c для поддержки HTTP/2 без TLS
+	httpServer := &http.Server{
+		Addr:    ":" + cfg.HTTPPort,
+		Handler: h2c.NewHandler(handler, &http2.Server{}),
+	}
+
+	// 8. Запуск gRPC сервера в отдельной горутине
+	grpcServerErr := make(chan error, 1)
 	go func() {
 		logger.Info("gRPC server starting", zap.String("address", listener.Addr().String()))
 		if err := grpcServer.Serve(listener); err != nil {
 			// Игнорируем ошибку закрытия listener (это нормально при shutdown)
 			if err.Error() != "use of closed network connection" {
-				serverErr <- err
+				grpcServerErr <- err
 			}
 		}
 	}()
 
-	// 8. Обработка сигналов для graceful shutdown
+	// 9. Запуск HTTP Gateway сервера в отдельной горутине
+	httpServerErr := make(chan error, 1)
+	go func() {
+		logger.Info("HTTP Gateway server starting", zap.String("address", httpServer.Addr))
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			httpServerErr <- err
+		}
+	}()
+
+	// 10. Обработка сигналов для graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	select {
-	case err := <-serverErr:
+	case err := <-grpcServerErr:
 		logger.Fatal("gRPC server error", zap.Error(err))
+	case err := <-httpServerErr:
+		logger.Fatal("HTTP Gateway server error", zap.Error(err))
 	case sig := <-sigChan:
 		logger.Info("Received shutdown signal", zap.String("signal", sig.String()))
+
+		// Останавливаем HTTP Gateway сервер
+		logger.Info("Shutting down HTTP Gateway server...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("Error shutting down HTTP server", zap.Error(err))
+		} else {
+			logger.Info("HTTP Gateway server stopped")
+		}
 
 		// Останавливаем gRPC сервер
 		logger.Info("Shutting down gRPC server...")
@@ -243,6 +305,8 @@ func main() {
 		if err := listener.Close(); err != nil {
 			logger.Warn("Error closing listener", zap.Error(err))
 		}
+
+		// gRPC connection больше не нужен, так как используем прямой вызов сервера
 
 		// Закрываем ресурсы контейнера (БД, Redis)
 		logger.Info("Closing container resources...")

@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
 	platformlogger "github.com/t4RG3T21/GoBigTech/platform/logger"
+	"github.com/t4RG3T21/GoBigTech/services/notification/internal/api"
 	"github.com/t4RG3T21/GoBigTech/services/notification/internal/di"
 )
 
@@ -46,7 +50,7 @@ func main() {
 	)
 
 	// 4. Инициализация сервиса уведомлений (проверяем подключение к Telegram)
-	_, err = container.Service()
+	notificationService, err := container.Service()
 	if err != nil {
 		logger.Fatal("Failed to initialize notification service",
 			zap.Error(err),
@@ -62,11 +66,55 @@ func main() {
 	}
 	logger.Info("Kafka handler initialized successfully")
 
-	// 6. Создаем контекст для обработки сообщений
+	// 6. Создаем HTTP роутер и настраиваем эндпоинты
+	r := chi.NewRouter()
+
+	// Health check endpoint
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		logger.Info("Health check called")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "ok",
+			"service":   "notification",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	// Alert endpoint
+	alertHandler := api.NewAlertHandler(notificationService, logger.Logger)
+	r.Post("/alert", alertHandler.HandleAlert)
+
+	// 7. Настройка HTTP сервера
+	serverAddress := ":" + cfg.HTTPPort
+	server := &http.Server{
+		Addr:         serverAddress,
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// ДОБАВИМ ЛОГ ДЛЯ ОТЛАДКИ
+	logger.Info("Configured HTTP server",
+		zap.String("address", serverAddress),
+		zap.String("http_port", cfg.HTTPPort))
+
+	// 8. Запуск HTTP сервера в отдельной горутине
+	serverErr := make(chan error, 1)
+	go func() {
+		logger.Info("HTTP server starting", zap.String("address", server.Addr))
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("HTTP server failed", zap.Error(err))
+			serverErr <- err
+		}
+	}()
+
+	// 9. Создаем контекст для обработки Kafka сообщений
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 7. Запускаем обработку сообщений в отдельной горутине
+	// 10. Запускаем обработку Kafka сообщений в отдельной горутине
 	handlerErr := make(chan error, 1)
 	go func() {
 		logger.Info("Starting Kafka message processing")
@@ -75,17 +123,31 @@ func main() {
 		}
 	}()
 
-	// 8. Обработка сигналов для graceful shutdown
+	// 11. Обработка сигналов для graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	select {
+	case err := <-serverErr:
+		logger.Fatal("HTTP server error", zap.Error(err))
 	case err := <-handlerErr:
 		logger.Fatal("Kafka handler error", zap.Error(err))
 	case sig := <-sigChan:
 		logger.Info("Received shutdown signal", zap.String("signal", sig.String()))
 
-		// Отменяем контекст для остановки обработки сообщений
+		// Создаем контекст с таймаутом для graceful shutdown
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		// Останавливаем HTTP сервер
+		logger.Info("Shutting down HTTP server...")
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Error("Error during HTTP server shutdown", zap.Error(err))
+		} else {
+			logger.Info("HTTP server stopped gracefully")
+		}
+
+		// Отменяем контекст для остановки обработки Kafka сообщений
 		logger.Info("Stopping Kafka message processing...")
 		cancel()
 
