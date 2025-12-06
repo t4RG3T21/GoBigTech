@@ -1,47 +1,69 @@
-# Build stage
+# Multi-stage Dockerfile for Notification Service
 FROM golang:1.25-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /build
+
+# Copy platform module with go.mod and go.sum (required for replace directive in go.mod)
+COPY platform/go.mod platform/go.sum ./platform/
+COPY platform ./platform
+
+# Copy service go.mod and go.sum
+COPY services/notification/go.mod services/notification/go.sum ./services/notification/
+
+# Set working directory to service
+WORKDIR /build/services/notification
+
+# Copy service source code
+COPY services/notification/ ./
+
+# Download dependencies for platform module first
+WORKDIR /build/platform
+RUN go mod download
+
+# Download dependencies for notification service (platform available via replace directive in go.mod)
+WORKDIR /build/services/notification
+RUN go mod download
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -o /app/service \
+    ./cmd/notification
+
+# Runtime stage
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk --no-cache add \
+    ca-certificates \
+    tzdata \
+    wget \
+    && update-ca-certificates
+
+# Create non-root user
+RUN addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser
 
 WORKDIR /app
 
-# Копируем platform модуль (необходим для replace директивы в go.mod)
-COPY platform ./platform
+# Copy binary from builder
+COPY --from=builder /app/service /app/service
 
-# Копируем go.mod и go.sum notification service
-COPY services/notification/go.mod services/notification/go.sum ./services/notification/
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
 
-# Переходим в директорию notification service
-WORKDIR /app/services/notification
-
-# Загружаем зависимости (platform доступен через replace в go.mod)
-# Не используем go.work, так как replace директива уже указывает на platform
-RUN go mod download
-
-# Копируем исходный код notification service
-COPY services/notification/ ./
-
-# Синхронизируем зависимости (загрузит недостающие)
-RUN go mod tidy
-
-# Собираем приложение
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/notification ./cmd/notification
-
-# Final stage
-FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates wget
-
-WORKDIR /root/
-
-# Копируем бинарник из builder stage
-COPY --from=builder /app/notification .
+# Switch to non-root user
+USER appuser
 
 # Expose port
 EXPOSE 8083
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8083/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:8083/health || exit 1
 
 # Run the application
-CMD ["./notification"]
-
+CMD ["/app/service"]

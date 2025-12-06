@@ -77,23 +77,30 @@ jobs:
       if: matrix.service == 'iam' || matrix.service == 'inventory' || matrix.service == 'payment'
       run: |
         # Install protoc and plugins
-        sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        sudo apt-get update && sudo apt-get install -y protobuf-compiler git
         go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
         go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
         
-        # Generate proto files
+        # Download googleapis for IAM service (needed for HTTP annotations)
         if [ "${{ matrix.service }}" = "iam" ]; then
+          if [ ! -d /tmp/googleapis ]; then
+            git clone --depth 1 https://github.com/googleapis/googleapis.git /tmp/googleapis
+          fi
           protoc --go_out=services --go_opt=paths=source_relative \
                  --go-grpc_out=services --go-grpc_opt=paths=source_relative \
-                 --proto_path=api/proto api/proto/iam/v1/iam.proto
+                 --proto_path=api/proto \
+                 --proto_path=/tmp/googleapis \
+                 api/proto/iam/v1/iam.proto
         elif [ "${{ matrix.service }}" = "inventory" ]; then
           protoc --go_out=services --go_opt=paths=source_relative \
                  --go-grpc_out=services --go-grpc_opt=paths=source_relative \
-                 --proto_path=api/proto api/proto/inventory/v1/inventory.proto
+                 --proto_path=api/proto \
+                 api/proto/inventory/v1/inventory.proto
         elif [ "${{ matrix.service }}" = "payment" ]; then
           protoc --go_out=services --go_opt=paths=source_relative \
                  --go-grpc_out=services --go-grpc_opt=paths=source_relative \
-                 --proto_path=api/proto api/proto/payment/v1/payment.proto
+                 --proto_path=api/proto \
+                 api/proto/payment/v1/payment.proto
         fi
     
     - name: Run tests for ${{ matrix.service }}
@@ -189,22 +196,30 @@ jobs:
     - name: Generate proto files (if needed)
       if: matrix.service == 'iam' || matrix.service == 'inventory' || matrix.service == 'payment'
       run: |
-        sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        sudo apt-get update && sudo apt-get install -y protobuf-compiler git
         go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
         go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
         
+        # Download googleapis for IAM service (needed for HTTP annotations)
         if [ "${{ matrix.service }}" = "iam" ]; then
+          if [ ! -d /tmp/googleapis ]; then
+            git clone --depth 1 https://github.com/googleapis/googleapis.git /tmp/googleapis
+          fi
           protoc --go_out=services --go_opt=paths=source_relative \
                  --go-grpc_out=services --go-grpc_opt=paths=source_relative \
-                 --proto_path=api/proto api/proto/iam/v1/iam.proto
+                 --proto_path=api/proto \
+                 --proto_path=/tmp/googleapis \
+                 api/proto/iam/v1/iam.proto
         elif [ "${{ matrix.service }}" = "inventory" ]; then
           protoc --go_out=services --go_opt=paths=source_relative \
                  --go-grpc_out=services --go-grpc_opt=paths=source_relative \
-                 --proto_path=api/proto api/proto/inventory/v1/inventory.proto
+                 --proto_path=api/proto \
+                 api/proto/inventory/v1/inventory.proto
         elif [ "${{ matrix.service }}" = "payment" ]; then
           protoc --go_out=services --go_opt=paths=source_relative \
                  --go-grpc_out=services --go-grpc_opt=paths=source_relative \
-                 --proto_path=api/proto api/proto/payment/v1/payment.proto
+                 --proto_path=api/proto \
+                 api/proto/payment/v1/payment.proto
         fi
     
     - name: Build ${{ matrix.service }}

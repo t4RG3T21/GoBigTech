@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/t4RG3T21/GoBigTech/services/order/internal/service"
@@ -26,9 +25,10 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rw, r)
 
 		// Записываем метрику HTTP запроса в Prometheus
-		if promMetrics != nil {
-			promMetrics.RecordHTTPRequest(r.Method, r.URL.Path, strconv.Itoa(rw.statusCode))
-		}
+		// Используем platform/metrics через platformhttpmetrics.MetricsMiddleware вместо этого
+		// if promMetrics != nil {
+		// 	promMetrics.RecordHTTPRequest(r.Method, r.URL.Path, strconv.Itoa(rw.statusCode))
+		// }
 
 		_ = time.Since(start) // Для будущего расширения
 	})

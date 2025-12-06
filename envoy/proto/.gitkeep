@@ -1,0 +1,4 @@
+# This directory contains proto descriptor files for gRPC JSON transcoding
+# Generate descriptor with:
+# protoc --descriptor_set_out=envoy/proto/inventory_payment.pb --include_imports --include_source_info api/proto/inventory/v1/inventory.proto api/proto/payment/v1/payment.proto
+

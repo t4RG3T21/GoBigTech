@@ -19,8 +19,7 @@ type PrometheusMetrics struct {
 	// OrdersFailed - счетчик неудачных заказов по причинам
 	OrdersFailed *prometheus.CounterVec
 
-	// HTTPRequestsTotal - счетчик HTTP запросов
-	HTTPRequestsTotal *prometheus.CounterVec
+	// HTTPRequestsTotal удален - используем platform/metrics.NewHTTPMetrics вместо этого
 }
 
 // NewPrometheusMetrics создает новый экземпляр Prometheus метрик
@@ -48,10 +47,7 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 			Help: "The total number of failed orders",
 		}, []string{"reason"}),
 
-		HTTPRequestsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "order_http_requests_total",
-			Help: "Total HTTP requests to order service",
-		}, []string{"method", "endpoint", "status"}),
+		// HTTPRequestsTotal удален - используем platform/metrics.NewHTTPMetrics вместо этого
 	}
 }
 
@@ -73,10 +69,4 @@ func (m *PrometheusMetrics) RecordOrderFailure(reason string) {
 	m.OrdersFailed.WithLabelValues(reason).Inc()
 }
 
-// RecordHTTPRequest записывает метрики HTTP запроса
-func (m *PrometheusMetrics) RecordHTTPRequest(method, endpoint, status string) {
-	if m == nil {
-		return
-	}
-	m.HTTPRequestsTotal.WithLabelValues(method, endpoint, status).Inc()
-}
+// RecordHTTPRequest удален - используйте platform/metrics.HTTPMetrics.RecordRequest вместо этого

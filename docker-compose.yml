@@ -168,8 +168,11 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.51
     container_name: gobigtech_jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
     ports:
       - "16686:16686" # Web UI
+      - "9411:9411"   # Zipkin endpoint
     networks:
       - gobigtech_network
 
@@ -223,6 +226,127 @@ services:
     # Убираем зависимость от notification-service, т.к. Alertmanager может работать без него
     # Webhook будет вызываться только когда notification-service доступен
 
+  # Order Service
+  order-service:
+    build:
+      context: .
+      dockerfile: ./services/order/Dockerfile
+    container_name: gobigtech_order_service
+    ports:
+      - "8080:8080"
+    environment:
+      - HTTP_PORT=8080
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/order_service?sslmode=disable
+      - INVENTORY_GRPC_ADDRESS=inventory-service:50051
+      - PAYMENT_GRPC_ADDRESS=payment-service:50052
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - LOG_LEVEL=info
+    networks:
+      - gobigtech_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # IAM Service
+  iam-service:
+    build:
+      context: .
+      dockerfile: ./services/iam/Dockerfile
+    container_name: gobigtech_iam_service
+    ports:
+      - "50053:50053"  # gRPC
+      - "8082:8082"    # HTTP Gateway
+    environment:
+      - GRPC_PORT=50053
+      - HTTP_PORT=8082
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/iam_service?sslmode=disable
+      - REDIS_ADDRESS=redis:6379
+      - REDIS_PASSWORD=redis_password
+      - SESSION_TTL=24h
+      - LOG_LEVEL=info
+    networks:
+      - gobigtech_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f /app/service > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Inventory Service
+  inventory-service:
+    build:
+      context: .
+      dockerfile: ./services/inventory/Dockerfile
+    container_name: gobigtech_inventory_service
+    ports:
+      - "50051:50051"
+    environment:
+      - GRPC_PORT=50051
+      - MONGODB_URL=mongodb://admin:password@mongodb:27017
+      - IAM_GRPC_ADDRESS=iam-service:50053
+      - LOG_LEVEL=info
+    networks:
+      - gobigtech_network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      iam-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Payment Service
+  payment-service:
+    build:
+      context: .
+      dockerfile: ./services/payment/Dockerfile
+    container_name: gobigtech_payment_service
+    ports:
+      - "50052:50052"
+    environment:
+      - GRPC_PORT=50052
+      - LOG_LEVEL=info
+    networks:
+      - gobigtech_network
+    restart: unless-stopped
+
+  # Assembly Service
+  assembly-service:
+    build:
+      context: .
+      dockerfile: ./services/assembly/Dockerfile
+    container_name: gobigtech_assembly_service
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - KAFKA_PAYMENT_TOPIC=orders.payment
+      - KAFKA_ASSEMBLY_TOPIC=orders.assembly
+      - KAFKA_CONSUMER_GROUP_ID=assembly-service
+      - LOG_LEVEL=info
+    networks:
+      - gobigtech_network
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Notification Service - для отправки алертов в Telegram
   notification-service:
     build:
@@ -251,6 +375,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 10s
     logging:
       driver: "json-file"
       options:
@@ -331,6 +456,29 @@ services:
     environment:
       - BEAT_STRICT_PERMS=false
     command: ["filebeat", "-e", "-strict.perms=false"]
+    restart: unless-stopped
+
+  # Envoy API Gateway
+  envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    container_name: gobigtech_envoy
+    ports:
+      - "80:8080"    # HTTP
+      - "8084:8084"  # gRPC REST Gateway (REST→gRPC трансформация)
+      - "9091:9090"  # gRPC (внешний порт 9091, внутренний 9090)
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./envoy/lua:/etc/envoy/lua:ro
+      - ./envoy/proto:/etc/envoy/proto:ro
+    networks:
+      - gobigtech_network
+    command: ["/usr/local/bin/envoy", "-c", "/etc/envoy/envoy.yaml", "--service-cluster", "envoy-gateway"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9901/server_info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
 volumes:
